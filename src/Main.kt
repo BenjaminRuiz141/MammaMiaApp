@@ -1,10 +1,18 @@
-open class Usuario(val nombre: String, val contacto: String)
+open class Usuario(val nombre: String, val contacto: String) {
+    open fun mostrarDatos(): String {
+        return "Usuario: $nombre | Contacto: $contacto"
+    }
+}
 
 class Cliente(
     nombre: String,
     val telefono: String,
     val correo: String
-) : Usuario(nombre, "Tel: $telefono | Email: $correo")
+) : Usuario(nombre, "Tel: $telefono | Email: $correo") {
+    override fun mostrarDatos(): String {
+        return "Cliente: $nombre | Contacto: $telefono, $correo"
+    }
+}
 
 class Repartidor(
     nombre: String,
@@ -12,9 +20,13 @@ class Repartidor(
     val distanciaKm: Int,
     val disponible: Boolean = true
 ) : Usuario(nombre, contacto) {
+    override fun mostrarDatos(): String {
+        return "Repartidor: $nombre | Tel: $contacto | Distancia: ${distanciaKm}km"
+    }
+
     fun entregarPedido(pedido: Pedido) {
         pedido.cambiarEstado("En camino")
-        println("El repartidor $nombre está entregando el pedido de ${pedido.cliente.nombre}.")
+        println("${mostrarDatos()} -> Entregando pedido de ${pedido.cliente.nombre}.")
     }
 }
 
@@ -24,9 +36,11 @@ class Producto(
     val ingredientes: List<String>
 ) {
     fun detallarProducto(): String {
-        return "Producto: $nombre | Precio: $$precio | Ingredientes: ${ingredientes.joinToString(", ")}"
+        return "Producto: $nombre | Precio: $${"%.2f".format(precio)} | Ingredientes: ${ingredientes.joinToString(", ")}"
     }
 }
+
+val estadosPermitidos: Set<String> = setOf("En preparación", "Listo", "En camino")
 
 class Pedido(
     val cliente: Cliente,
@@ -39,7 +53,9 @@ class Pedido(
     }
 
     fun cambiarEstado(nuevoEstado: String) {
-        estado = nuevoEstado
+        if (nuevoEstado in estadosPermitidos) {
+            estado = nuevoEstado
+        }
     }
 
     fun mostrarResumen() {
@@ -52,17 +68,16 @@ class Pedido(
 
         println("==========================================")
         println("RESUMEN DEL PEDIDO")
-        println("Cliente: ${cliente.nombre}")
-        println("Contacto: ${cliente.telefono} | ${cliente.correo}")
+        println(cliente.mostrarDatos())
         println("Productos:")
         val agrupados = productos.groupBy { it.nombre }
         for ((nombreProd, lista) in agrupados) {
             val precioUnitario = lista.first().precio
             val cantidad = lista.size
-            println(" - $nombreProd | Precio: $$precioUnitario | Cantidad: $cantidad")
+            println(" - $nombreProd | Precio: $${"%.2f".format(precioUnitario)} | Cantidad: $cantidad")
         }
-        println("Subtotal: $$subtotal")
-        println("Descuento aplicado: $$descuento")
+        println("Subtotal: $${"%.2f".format(subtotal)}")
+        println("Descuento aplicado: $${"%.2f".format(descuento)}")
         println("Impuestos (19%): $${"%.2f".format(impuestos)}")
         println("Total final: $${"%.2f".format(totalFinal)}")
         println("Estado del pedido: $estado")
@@ -134,11 +149,17 @@ fun validarEntradaDatos(costoInput: String, cantidadInventarioInput: String) {
         val cantidad = cantidadInventarioInput.toInt()
         if (costo <= 0) throw IllegalArgumentException("El costo del pedido debe ser mayor a 0.")
         if (cantidad < 0) throw IllegalArgumentException("La cantidad en el inventario no puede ser negativa.")
-        println("Datos validados correctamente: Costo = $$costo, Cantidad Inventario = $cantidad")
+        println("Datos validados correctamente: Costo = $${"%.2f".format(costo)}, Cantidad Inventario = $cantidad")
     } catch (e: NumberFormatException) {
-        println("Error de formato: Ingrese valores numéricos válidos. Corriga los datos e intente nuevamente.")
+        println("Error de formato (${e.message}): Ingrese valores numéricos válidos. Corrija los datos e intente nuevamente.")
     } catch (e: IllegalArgumentException) {
         println("Error de validación: ${e.message} Por favor, corrija los datos.")
+    }
+}
+
+fun notificarCliente(cliente: Cliente?, estadoPedido: String) {
+    cliente?.let {
+        println("Notificación enviada a ${it.nombre} (${it.correo}): Su pedido se encuentra '$estadoPedido'.")
     }
 }
 
@@ -194,10 +215,8 @@ fun main() {
     repartidorMasCercano?.entregarPedido(pedido1)
 
     println("\n--- Notificación a Clientes Registrados (let) ---")
-    val clienteRegistrado: Cliente? = cliente1
-    clienteRegistrado?.let {
-        println("Notificación enviada a ${it.nombre} (${it.correo}): Su pedido se encuentra '${pedido1.estado}'.")
-    }
+    notificarCliente(cliente1, pedido1.estado)
+    notificarCliente(null, "Cancelado")
 
     val pedidosDelDia: Array<Pedido> = arrayOf(pedido1, pedido2, pedido3)
 
