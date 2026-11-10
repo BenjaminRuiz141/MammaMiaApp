@@ -1,239 +1,216 @@
-open class Usuario(val nombre: String, val contacto: String) {
-    open fun mostrarDatos(): String {
-        return "Usuario: $nombre | Contacto: $contacto"
-    }
-}
+import java.time.LocalDate
+
+@Target(AnnotationTarget.CLASS)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class Promocionable(val descuento: Double = 0.10)
+
+val rangoFechasPromocion: ClosedRange<LocalDate> =
+    LocalDate.of(2026, 11, 1)..LocalDate.of(2026, 11, 30)
 
 class Cliente(
-    nombre: String,
-    val telefono: String,
-    val correo: String
-) : Usuario(nombre, "Tel: $telefono | Email: $correo") {
-    override fun mostrarDatos(): String {
-        return "Cliente: $nombre | Contacto: $telefono, $correo"
-    }
-}
-
-class Repartidor(
-    nombre: String,
-    contacto: String,
-    val distanciaKm: Int,
-    val disponible: Boolean = true
-) : Usuario(nombre, contacto) {
-    override fun mostrarDatos(): String {
-        return "Repartidor: $nombre | Tel: $contacto | Distancia: ${distanciaKm}km"
-    }
-
-    fun entregarPedido(pedido: Pedido) {
-        pedido.cambiarEstado("En camino")
-        println("${mostrarDatos()} -> Entregando pedido de ${pedido.cliente.nombre}.")
-    }
-}
-
-class Producto(
     val nombre: String,
-    val precio: Double,
-    val ingredientes: List<String>
+    val correo: String,
+    val telefono: String
 ) {
-    fun detallarProducto(): String {
-        return "Producto: $nombre | Precio: $${"%.2f".format(precio)} | Ingredientes: ${ingredientes.joinToString(", ")}"
+    operator fun component1(): String = nombre
+    operator fun component2(): String = correo
+    operator fun component3(): String = telefono
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Cliente) return false
+        return nombre.equals(other.nombre, ignoreCase = true) &&
+                correo.equals(other.correo, ignoreCase = true)
+    }
+
+    override fun hashCode(): Int {
+        return 31 * nombre.lowercase().hashCode() + correo.lowercase().hashCode()
     }
 }
 
-val estadosPermitidos: Set<String> = setOf("En preparación", "Listo", "En camino")
+open class Producto(
+    val nombre: String,
+    val categoria: String,
+    val precio: Double
+) {
+    override operator fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Producto) return false
+        return nombre.equals(other.nombre, ignoreCase = true) &&
+                categoria.equals(other.categoria, ignoreCase = true)
+    }
+
+    override fun hashCode(): Int {
+        return 31 * nombre.lowercase().hashCode() + categoria.lowercase().hashCode()
+    }
+}
+
+@Promocionable(descuento = 0.15)
+class PizzaPromocional(nombre: String, precio: Double) : Producto(nombre, "pizza", precio)
+
+@Promocionable(descuento = 0.20)
+class ComboPromocional(nombre: String, precio: Double) : Producto(nombre, "combo", precio)
 
 class Pedido(
     val cliente: Cliente,
     val productos: List<Producto>,
-    var estado: String = "En preparación",
-    val notas: String? = null
+    val fechaPedido: LocalDate = LocalDate.now()
 ) {
     fun calcularTotal(): Double {
-        return calcularTotalPedido(productos)
-    }
-
-    fun cambiarEstado(nuevoEstado: String) {
-        if (nuevoEstado in estadosPermitidos) {
-            estado = nuevoEstado
-        }
-    }
-
-    fun mostrarResumen() {
         val subtotal = productos.sumOf { it.precio }
-        val descuento = if (productos.size > 3) subtotal * 0.10 else 0.0
-        val baseImponible = subtotal - descuento
-        val impuestos = baseImponible * 0.19
-        val totalFinal = calcularTotal()
-        val comentario = notas?.takeIf { it.isNotBlank() } ?: "Sin notas"
-
-        println("==========================================")
-        println("RESUMEN DEL PEDIDO")
-        println(cliente.mostrarDatos())
-        println("Productos:")
-        val agrupados = productos.groupBy { it.nombre }
-        for ((nombreProd, lista) in agrupados) {
-            val precioUnitario = lista.first().precio
-            val cantidad = lista.size
-            println(" - $nombreProd | Precio: $${"%.2f".format(precioUnitario)} | Cantidad: $cantidad")
+        val descuentoPromo = productos.sumOf { prod ->
+            val anotacion = prod::class.java.getAnnotation(Promocionable::class.java)
+            if (anotacion != null) prod.precio * anotacion.descuento else 0.0
         }
-        println("Subtotal: $${"%.2f".format(subtotal)}")
-        println("Descuento aplicado: $${"%.2f".format(descuento)}")
-        println("Impuestos (19%): $${"%.2f".format(impuestos)}")
-        println("Total final: $${"%.2f".format(totalFinal)}")
-        println("Estado del pedido: $estado")
-        println("Notas: $comentario")
-        println("==========================================")
+        val descuentoFecha = if (fechaPedido in rangoFechasPromocion) subtotal * 0.10 else 0.0
+        return (subtotal - descuentoPromo - descuentoFecha).coerceAtLeast(0.0)
     }
+
+    operator fun plus(otro: Pedido): Pedido {
+        return Pedido(
+            cliente = this.cliente,
+            productos = this.productos + otro.productos,
+            fechaPedido = this.fechaPedido
+        )
+    }
+
+    operator fun component1(): Cliente = cliente
+    operator fun component2(): List<Producto> = productos
+    operator fun component3(): Double = calcularTotal()
 }
 
-fun registrarCliente(nombre: String, telefonoInput: String, correoInput: String): Cliente {
-    val regexTelefono = Regex("^\\(?\\d{3}\\)?[-\\s]?\\d{3}[-\\s]?\\d{4}$|^\\d{9}$")
+fun validarCorreo(entradas: Iterator<String>): String {
     val regexCorreo = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
-
-    val telefonoValido = if (regexTelefono.matches(telefonoInput)) telefonoInput else "(000) 000-0000"
-    val correoValido = if (regexCorreo.matches(correoInput)) correoInput else "correo@invalido.com"
-
-    return Cliente(nombre, telefonoValido, correoValido)
-}
-
-fun verificarIngredientes(ingredientesNecesarios: List<String>, inventario: Map<String, Int>): Boolean {
-    val requeridosPorTipo = ingredientesNecesarios.groupingBy { it }.eachCount()
-    val faltantes = requeridosPorTipo.filter { (ingrediente, cantidadNecesaria) ->
-        (inventario[ingrediente] ?: 0) < cantidadNecesaria
-    }
-
-    return when {
-        faltantes.isEmpty() -> {
-            println("Inventario verificado: Todos los ingredientes están disponibles.")
-            true
+    while (entradas.hasNext()) {
+        val correo = entradas.next().trim()
+        if (regexCorreo.matches(correo)) {
+            return correo
         }
-        else -> {
-            println("Faltan ingredientes: ${faltantes.keys.joinToString(", ")}")
-            println("Pasos para reabastecer:")
-            println("1. Contactar al proveedor de ${faltantes.keys.joinToString(", ")}.")
-            println("2. Realizar orden de compra de emergencia.")
-            println("3. Recepcionar y actualizar stock en el sistema.")
-            false
+        println("Error: El correo '$correo' es inválido (formato esperado: nombre@dominio.com). Reingrese.")
+    }
+    return "invalido@dominio.com"
+}
+
+fun formatearTelefono(telefono: String): String {
+    val digitos = telefono.replace(Regex("\\D"), "")
+    val regexDoceDigitos = Regex("^(\\d{2})(\\d{3})(\\d{3})(\\d{4})$")
+    val match = regexDoceDigitos.matchEntire(digitos)
+    return if (match != null) {
+        val (pais, area, p1, p2) = match.destructured
+        "+$pais ($area) $p1-$p2"
+    } else {
+        println("Error: El teléfono '$telefono' debe tener 12 dígitos para el formato +XX (XXX) XXX-XXXX.")
+        "+00 (000) 000-0000"
+    }
+}
+
+fun validarFechaPromocion(fecha: LocalDate): Boolean {
+    return if (fecha in rangoFechasPromocion) {
+        println("Fecha $fecha dentro del periodo de promociones (${rangoFechasPromocion.start} a ${rangoFechasPromocion.endInclusive}). Aplica descuento.")
+        true
+    } else {
+        println("Error: Fecha $fecha fuera del periodo de promociones (${rangoFechasPromocion.start} a ${rangoFechasPromocion.endInclusive}).")
+        false
+    }
+}
+
+fun validarCantidadProductos(entradas: Iterator<Int>): Int {
+    val rangoPermitido = 1..100
+    while (entradas.hasNext()) {
+        val cantidad = entradas.next()
+        if (cantidad in rangoPermitido) {
+            return cantidad
         }
+        println("Error: La cantidad '$cantidad' está fuera del rango permitido (1-100). Ingrese un valor válido.")
+    }
+    return 1
+}
+
+fun esPromocionable(producto: Producto): Boolean {
+    return producto::class.java.isAnnotationPresent(Promocionable::class.java)
+}
+
+fun analizarClaseConReflection(clazz: Class<*>) {
+    val propiedades = clazz.declaredFields.map { it.name }
+    val metodos = clazz.declaredMethods.map { it.name }.filter { !it.contains("$") }.distinct()
+    println("Clase ${clazz.simpleName} -> Propiedades: $propiedades | Métodos: $metodos")
+}
+
+fun registrarCliente(lista: MutableList<Cliente>, cliente: Cliente) {
+    if (lista.contains(cliente)) {
+        println("Cliente duplicado omitido: ${cliente.nombre} (${cliente.correo})")
+    } else {
+        lista.add(cliente)
+        println("Cliente registrado: ${cliente.nombre}")
     }
 }
 
-fun calcularTotalPedido(productos: List<Producto>): Double {
-    val subtotal = productos.sumOf { it.precio }
-    val descuento = if (productos.size > 3) subtotal * 0.10 else 0.0
-    val subtotalConDescuento = subtotal - descuento
-    val impuestos = subtotalConDescuento * 0.19
-    return subtotalConDescuento + impuestos
-}
-
-fun prepararLotePizzas(
-    ingredientesPorPizza: List<String>,
-    cantidadLote: Int,
-    inventario: MutableMap<String, Int>
-) {
-    val totalNecesarioPorIngrediente = ingredientesPorPizza.groupingBy { it }.eachCount()
-        .mapValues { it.value * cantidadLote }
-
-    println("Cantidad necesaria para lote de $cantidadLote pizzas: $totalNecesarioPorIngrediente")
-
-    for ((ingrediente, cantidadNecesaria) in totalNecesarioPorIngrediente) {
-        val disponible = inventario[ingrediente] ?: 0
-        inventario[ingrediente] = (disponible - cantidadNecesaria).coerceAtLeast(0)
-    }
-    println("Inventario actualizado: $inventario")
-}
-
-fun validarEntradaDatos(costoInput: String, cantidadInventarioInput: String) {
-    try {
-        val costo = costoInput.toDouble()
-        val cantidad = cantidadInventarioInput.toInt()
-        if (costo <= 0) throw IllegalArgumentException("El costo del pedido debe ser mayor a 0.")
-        if (cantidad < 0) throw IllegalArgumentException("La cantidad en el inventario no puede ser negativa.")
-        println("Datos validados correctamente: Costo = $${"%.2f".format(costo)}, Cantidad Inventario = $cantidad")
-    } catch (e: NumberFormatException) {
-        println("Error de formato (${e.message}): Ingrese valores numéricos válidos. Corrija los datos e intente nuevamente.")
-    } catch (e: IllegalArgumentException) {
-        println("Error de validación: ${e.message} Por favor, corrija los datos.")
-    }
-}
-
-fun notificarCliente(cliente: Cliente?, estadoPedido: String) {
-    cliente?.let {
-        println("Notificación enviada a ${it.nombre} (${it.correo}): Su pedido se encuentra '$estadoPedido'.")
+fun registrarProducto(lista: MutableList<Producto>, producto: Producto) {
+    if (lista.contains(producto)) {
+        println("Producto duplicado omitido: ${producto.nombre} [${producto.categoria}]")
+    } else {
+        lista.add(producto)
+        println("Producto registrado: ${producto.nombre} [${producto.categoria}]")
     }
 }
 
 fun main() {
-    val inventario = mutableMapOf(
-        "Masa" to 10,
-        "Salsa de tomate" to 10,
-        "Queso mozzarella" to 10,
-        "Pepperoni" to 8,
-        "Champiñones" to 5,
-        "Albahaca" to 2
-    )
+    println("=== PASO 1: REGEX Y RANGES ===")
+    val correoValido = validarCorreo(listOf("correo_malo", "juan@mammamia.cl").iterator())
+    formatearTelefono("12345")
+    val telefonoValido = formatearTelefono("569876543210")
+    val cantidadValida = validarCantidadProductos(listOf(0, 150, 2).iterator())
+    validarFechaPromocion(LocalDate.of(2026, 10, 15))
+    val fechaPedido = LocalDate.of(2026, 11, 9)
+    validarFechaPromocion(fechaPedido)
 
-    println("--- Validación de Errores (try-catch) ---")
-    validarEntradaDatos("-5000", "10")
-    validarEntradaDatos("8990", "-3")
-    validarEntradaDatos("abc", "5")
-    validarEntradaDatos("8990", "10")
+    println("\n=== PASO 2: ANOTACIONES Y REFLECTION ===")
+    analizarClaseConReflection(Cliente::class.java)
+    analizarClaseConReflection(Producto::class.java)
+    analizarClaseConReflection(Pedido::class.java)
 
-    println("\n--- Productos Disponibles ---")
-    val pizzaPepperoni = Producto("Pizza Pepperoni", 8990.0, listOf("Masa", "Salsa de tomate", "Queso mozzarella", "Pepperoni"))
-    val pizzaMargarita = Producto("Pizza Margarita", 7990.0, listOf("Masa", "Salsa de tomate", "Queso mozzarella", "Albahaca"))
-    val pizzaChampi = Producto("Pizza Champiñones", 8490.0, listOf("Masa", "Salsa de tomate", "Queso mozzarella", "Champiñones"))
-    println(pizzaPepperoni.detallarProducto())
-    println(pizzaMargarita.detallarProducto())
-    println(pizzaChampi.detallarProducto())
+    val pizzaPepperoni = PizzaPromocional("Pizza Pepperoni", 10000.0)
+    val comboFamiliar = ComboPromocional("Combo Familiar", 20000.0)
+    val bebidaCola = Producto("Bebida Cola", "bebida", 2500.0)
 
-    val cliente1 = registrarCliente("Juan Pérez", "987654321", "juan.perez@email.com")
-    val cliente2 = registrarCliente("María López", "123", "correo_invalido")
-    val cliente3 = registrarCliente("Pedro Gómez", "(123) 456-7890", "pedro@duoc.cl")
+    println("\n=== PASO 5: IGUALDAD DE OBJETOS (EQUALS Y HASHCODE) ===")
+    val clientes = mutableListOf<Cliente>()
+    val cliente1 = Cliente("Juan Pérez", correoValido, telefonoValido)
+    val clienteDuplicado = Cliente("JUAN PÉREZ", "JUAN@mammamia.cl", "+56 (000) 000-0000")
+    registrarCliente(clientes, cliente1)
+    registrarCliente(clientes, clienteDuplicado)
 
-    println("\n--- Verificación de Ingredientes y Preparación de Lote ---")
-    val productosPedido1 = listOf(pizzaPepperoni, pizzaPepperoni, pizzaMargarita, pizzaChampi)
-    val ingredientesPedido1 = productosPedido1.flatMap { it.ingredientes }
-    if (verificarIngredientes(ingredientesPedido1, inventario)) {
-        prepararLotePizzas(pizzaPepperoni.ingredientes, 2, inventario)
+    val productosCatalogo = mutableListOf<Producto>()
+    val pizzaDuplicada = Producto("pizza pepperoni", "PIZZA", 12000.0)
+    registrarProducto(productosCatalogo, pizzaPepperoni)
+    registrarProducto(productosCatalogo, pizzaDuplicada)
+    registrarProducto(productosCatalogo, comboFamiliar)
+    registrarProducto(productosCatalogo, bebidaCola)
+
+    println("\n=== PASO 3 Y 4: OPERATOR OVERLOADING Y DESESTRUCTURACIÓN ===")
+    val pedido1 = Pedido(cliente1, List(cantidadValida) { pizzaPepperoni }, fechaPedido)
+    val pedido2 = Pedido(cliente1, listOf(comboFamiliar, bebidaCola), fechaPedido)
+    val pedidoCombinado = pedido1 + pedido2
+
+    val (nombreCliente, correoCliente, telefonoCliente) = cliente1
+    val (clientePedido, productosPedido, totalPedido) = pedidoCombinado
+
+    println("\n=== PASO 6: RESUMEN EN CONSOLA ===")
+    println("1. Cliente desestructurado:")
+    println("   Nombre: $nombreCliente | Correo: $correoCliente | Teléfono: $telefonoCliente")
+
+    println("2. Productos identificados como @Promocionable:")
+    for (prod in productosPedido.filter { esPromocionable(it) }.distinct()) {
+        val anotacion = prod::class.java.getAnnotation(Promocionable::class.java)
+        println("   - ${prod.nombre} (${prod.categoria}) -> Descuento promoción: ${(anotacion.descuento * 100).toInt()}%")
     }
 
-    val pedidoExcesivo = listOf(pizzaMargarita, pizzaMargarita, pizzaMargarita)
-    verificarIngredientes(pedidoExcesivo.flatMap { it.ingredientes }, inventario)
+    println("3. Validación de igualdad de objetos:")
+    println("   - cliente1 == clienteDuplicado: ${cliente1 == clienteDuplicado} (hashCode: ${cliente1.hashCode()} == ${clienteDuplicado.hashCode()})")
+    println("   - pizzaPepperoni == pizzaDuplicada: ${pizzaPepperoni == pizzaDuplicada} (hashCode: ${pizzaPepperoni.hashCode()} == ${pizzaDuplicada.hashCode()})")
 
-    val pedido1 = Pedido(cliente1, productosPedido1, "En preparación", "Sin cebolla y cortar en 8 porciones")
-    val pedido2 = Pedido(cliente2, listOf(pizzaPepperoni, pizzaChampi), "Listo", null)
-    val pedido3 = Pedido(cliente3, listOf(pizzaMargarita), "En preparación", "")
-
-    println("\n--- Asignación de Repartidor ---")
-    val repartidores = listOf(
-        Repartidor("Carlos Soto", "911111111", distanciaKm = 5),
-        Repartidor("Ana Torres", "922222222", distanciaKm = 2),
-        Repartidor("Luis Rojas", "933333333", distanciaKm = 4)
-    )
-    val repartidorMasCercano = repartidores.sortedBy { it.distanciaKm }.find { it.disponible }
-    repartidorMasCercano?.entregarPedido(pedido1)
-
-    println("\n--- Notificación a Clientes Registrados (let) ---")
-    notificarCliente(cliente1, pedido1.estado)
-    notificarCliente(null, "Cancelado")
-
-    val pedidosDelDia: Array<Pedido> = arrayOf(pedido1, pedido2, pedido3)
-
-    println("\n--- Reporte de Pedidos del Día (Arreglo y Ciclo for) ---")
-    for (pedido in pedidosDelDia) {
-        val nombresPizzas = pedido.productos.joinToString(", ") { it.nombre }
-        println("Cliente: ${pedido.cliente.nombre} | Pizzas: $nombresPizzas | Total: $${"%.2f".format(pedido.calcularTotal())} | Estado: ${pedido.estado}")
-    }
-
-    val pedidosCompletados = pedidosDelDia.filter { it.estado == "Listo" }
-    val pedidosPendientes = pedidosDelDia.filter { it.estado != "Listo" }
-
-    println("\nPedidos Completados (${pedidosCompletados.size}): ${pedidosCompletados.map { it.cliente.nombre }}")
-    println("Pedidos Pendientes (${pedidosPendientes.size}): ${pedidosPendientes.map { it.cliente.nombre }}")
-
-    println("\n--- Resumen Final de Cada Pedido ---")
-    for (pedido in pedidosDelDia) {
-        pedido.mostrarResumen()
-    }
+    println("4. Pedido combinado (+) y desestructurado:")
+    println("   - Cliente: ${clientePedido.nombre}")
+    println("   - Productos (${productosPedido.size}): ${productosPedido.joinToString(", ") { it.nombre }}")
+    println("   - Total recalculado con descuentos: $${"%.2f".format(totalPedido)}")
 }
